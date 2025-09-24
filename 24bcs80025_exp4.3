@@ -1,0 +1,166 @@
+const express = require("express");
+const { v4: uuidv4 } = require("uuid");
+
+const app = express();
+app.use(express.json());
+const PORT = process.env.PORT || 3000;
+
+class Mutex {
+  constructor() {
+    this._queue = [];
+    this._locked = false;
+  }
+  acquire() {
+    const self = this;
+    const ticket = new Promise((resolve) => {
+      self._queue.push(resolve);
+    });
+    if (!this._locked) {
+      this._locked = true;
+      const next = this._queue.shift();
+      if (next) next();
+    }
+    return ticket.then(() => {
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        if (self._queue.length > 0) {
+          const next = self._queue.shift();
+          next();
+        } else {
+          self._locked = false;
+        }
+      };
+    });
+  }
+}
+
+const NUM_SEATS = 12;
+const LOCK_TTL_MS = 30000;
+
+const seats = new Map();
+for (let i = 1; i <= NUM_SEATS; i++) {
+  seats.set(i, { id: i, status: "available", lockToken: null, lockExpiresAt: null });
+}
+
+const seatMutexes = new Map();
+for (let i = 1; i <= NUM_SEATS; i++) seatMutexes.set(i, new Mutex());
+
+function purgeExpiredLockIfAny(seatObj) {
+  if (seatObj.status === "locked" && seatObj.lockExpiresAt && Date.now() > seatObj.lockExpiresAt) {
+    seatObj.status = "available";
+    seatObj.lockToken = null;
+    seatObj.lockExpiresAt = null;
+  }
+}
+
+app.get("/seats", (req, res) => {
+  const out = Array.from(seats.values()).map((s) => {
+    purgeExpiredLockIfAny(s);
+    return { id: s.id, status: s.status, lockExpiresAt: s.lockExpiresAt };
+  });
+  res.json(out);
+});
+
+app.post("/seats/:id/lock", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const seat = seats.get(id);
+  if (!seat) return res.status(404).json({ message: "Seat not found" });
+  const release = await seatMutexes.get(id).acquire();
+  try {
+    purgeExpiredLockIfAny(seat);
+    if (seat.status === "booked") return res.status(409).json({ message: "Seat already booked" });
+    if (seat.status === "locked") return res.status(409).json({ message: "Seat already locked" });
+    const token = uuidv4();
+    seat.status = "locked";
+    seat.lockToken = token;
+    seat.lockExpiresAt = Date.now() + LOCK_TTL_MS;
+    return res.status(200).json({ id, lockToken: token, lockExpiresAt: seat.lockExpiresAt });
+  } finally {
+    release();
+  }
+});
+
+app.post("/seats/:id/book", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const { lockToken } = req.body;
+  if (!lockToken) return res.status(400).json({ message: "lockToken required in body" });
+  const seat = seats.get(id);
+  if (!seat) return res.status(404).json({ message: "Seat not found" });
+  const release = await seatMutexes.get(id).acquire();
+  try {
+    purgeExpiredLockIfAny(seat);
+    if (seat.status === "booked") return res.status(409).json({ message: "Seat already booked" });
+    if (seat.status !== "locked" || seat.lockToken !== lockToken) {
+      return res.status(409).json({ message: "You do not hold the lock for this seat (or lock expired)" });
+    }
+    seat.status = "booked";
+    seat.lockToken = null;
+    seat.lockExpiresAt = null;
+    return res.status(200).json({ message: "Seat booked", id });
+  } finally {
+    release();
+  }
+});
+
+app.post("/seats/:id/release", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const { lockToken } = req.body;
+  if (!lockToken) return res.status(400).json({ message: "lockToken required in body" });
+  const seat = seats.get(id);
+  if (!seat) return res.status(404).json({ message: "Seat not found" });
+  const release = await seatMutexes.get(id).acquire();
+  try {
+    purgeExpiredLockIfAny(seat);
+    if (seat.status !== "locked" || seat.lockToken !== lockToken) {
+      return res.status(409).json({ message: "You don't hold the lock (or lock expired)" });
+    }
+    seat.status = "available";
+    seat.lockToken = null;
+    seat.lockExpiresAt = null;
+    return res.status(200).json({ message: "Lock released", id });
+  } finally {
+    release();
+  }
+});
+
+app.post("/seats/:id/lock-and-book", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const simulateDelayMs = parseInt(req.body.simulateDelayMs || 1000);
+  const seat = seats.get(id);
+  if (!seat) return res.status(404).json({ message: "Seat not found" });
+  const release = await seatMutexes.get(id).acquire();
+  let token;
+  try {
+    purgeExpiredLockIfAny(seat);
+    if (seat.status === "booked") return res.status(409).json({ message: "Seat already booked" });
+    if (seat.status === "locked") return res.status(409).json({ message: "Seat already locked" });
+    token = uuidv4();
+    seat.status = "locked";
+    seat.lockToken = token;
+    seat.lockExpiresAt = Date.now() + LOCK_TTL_MS;
+  } finally {
+    release();
+  }
+  await new Promise((r) => setTimeout(r, simulateDelayMs));
+  const release2 = await seatMutexes.get(id).acquire();
+  try {
+    purgeExpiredLockIfAny(seat);
+    if (seat.status !== "locked" || seat.lockToken !== token) {
+      return res.status(409).json({ message: "Lock lost/expired during processing" });
+    }
+    seat.status = "booked";
+    seat.lockToken = null;
+    seat.lockExpiresAt = null;
+    return res.status(200).json({ message: "Seat successfully booked (via lock-and-book)", id });
+  } finally {
+    release2();
+  }
+});
+
+app.get("/", (req, res) => res.send("Ticket booking API up"));
+
+app.listen(PORT, () => {
+  console.log(`Ticket booking API listening at http://localhost:${PORT}`);
+});
