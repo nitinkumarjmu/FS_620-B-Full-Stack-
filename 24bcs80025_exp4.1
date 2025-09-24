@@ -1,0 +1,64 @@
+const readline = require("readline");
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
+
+let tasks = [];
+
+function showMenu() {
+  console.log("\n=== Task Manager CLI ===");
+  console.log("1. Add Task");
+  console.log("2. List Tasks");
+  console.log("3. Delete Task");
+  console.log("4. Exit");
+  rl.question("Choose an option: ", handleMenu);
+}
+
+function handleMenu(choice) {
+  switch (choice.trim()) {
+    case "1":
+      rl.question("Enter task description: ", (desc) => {
+        tasks.push(desc);
+        console.log("Task added.");
+        showMenu();
+      });
+      break;
+    case "2":
+      if (tasks.length === 0) {
+        console.log("No tasks available.");
+      } else {
+        console.log("\nYour Tasks:");
+        tasks.forEach((task, i) => console.log(`${i + 1}. ${task}`));
+      }
+      showMenu();
+      break;
+    case "3":
+      if (tasks.length === 0) {
+        console.log("No tasks to delete.");
+        return showMenu();
+      }
+      rl.question("Enter task number to delete: ", (num) => {
+        const index = parseInt(num) - 1;
+        if (index >= 0 && index < tasks.length) {
+          console.log(`Deleted: ${tasks[index]}`);
+          tasks.splice(index, 1);
+        } else {
+          console.log("Invalid task number.");
+        }
+        showMenu();
+      });
+      break;
+    case "4":
+      console.log("Goodbye!");
+      rl.close();
+      break;
+    default:
+      console.log("Invalid option, try again.");
+      showMenu();
+      break;
+  }
+}
+
+showMenu();
