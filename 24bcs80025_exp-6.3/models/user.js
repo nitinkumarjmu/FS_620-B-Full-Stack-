@@ -1,1 +1,17 @@
+const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
 
+// Define the schema for a user account
+const UserSchema = new Schema({
+    name: {
+        type: String,
+        required: true
+    },
+    balance: {
+        type: Number,
+        required: true,
+        default: 0
+    }
+});
+
+module.exports = mongoose.model('User', UserSchema);
