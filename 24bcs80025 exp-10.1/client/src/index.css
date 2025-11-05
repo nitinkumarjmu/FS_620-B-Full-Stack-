@@ -1,0 +1,13 @@
+/* Minimal styles to support the Tailwind-like classes used in component.
+   For production, install and configure Tailwind. This file keeps things simple. */
+body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; padding:0; background:#eef2ff; }
+.min-h-screen { min-height: 100vh; }
+.max-w-3xl { max-width: 48rem; margin-left:auto; margin-right:auto; }
+.mx-auto { margin-left:auto; margin-right:auto; }
+.bg-white { background:white; }
+.rounded-lg { border-radius:0.75rem; }
+.shadow { box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.p-4 { padding:1rem; }
+.p-6 { padding:1.5rem; }
+.mb-6 { margin-bottom:1.5rem; }
+/* Add any additional utility styles you need in a real project or use Tailwind */
